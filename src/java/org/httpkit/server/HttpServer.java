@@ -14,19 +14,6 @@ import static org.httpkit.HttpUtils.HttpEncode;
 import static org.httpkit.HttpUtils.WsEncode;
 import static org.httpkit.server.Frame.CloseFrame.*;
 
-class PendingKey {
-    public final SelectionKey key;
-    // operation: can be register for write or close the selectionkey
-    public final int Op;
-
-    PendingKey(SelectionKey key, int op) {
-        this.key = key;
-        Op = op;
-    }
-
-    public static final int OP_WRITE = -1;
-}
-
 public class HttpServer implements Runnable {
 
     static final String THREAD_NAME = "server-loop";
@@ -43,9 +30,7 @@ public class HttpServer implements Runnable {
 
     private Thread serverThread;
 
-    // queue operations from worker threads to the IO thread
-    private final ConcurrentLinkedQueue<PendingKey> pending = new ConcurrentLinkedQueue<PendingKey>();
-
+    private final ConcurrentLinkedQueue<SelectionKey> pending = new ConcurrentLinkedQueue<SelectionKey>();
     // shared, single thread
     private final ByteBuffer buffer = ByteBuffer.allocateDirect(1024 * 64);
 
@@ -234,18 +219,18 @@ public class HttpServer implements Runnable {
                                 atta.toWrites.add(b);
                             }
                         }
-                        pending.add(new PendingKey(key, PendingKey.OP_WRITE));
+                        pending.add(key);
                         selector.wakeup();
                     } else if (!atta.isKeepAlive()) {
-                        pending.add(new PendingKey(key, CLOSE_NORMAL));
+                        closeKey(key, CLOSE_NORMAL);
                     }
                 } catch (IOException e) {
-                    pending.add(new PendingKey(key, CLOSE_AWAY));
+                    closeKey(key, CLOSE_AWAY);
                 }
             } else {
                 // If has pending write, order should be maintained. (WebSocket)
                 Collections.addAll(atta.toWrites, buffers);
-                pending.add(new PendingKey(key, PendingKey.OP_WRITE));
+                pending.add(key);
                 selector.wakeup();
             }
         }
@@ -254,14 +239,10 @@ public class HttpServer implements Runnable {
     public void run() {
         while (true) {
             try {
-                PendingKey k;
+                SelectionKey k = null;
                 while ((k = pending.poll()) != null) {
-                    if (k.Op == PendingKey.OP_WRITE) {
-                        if (k.key.isValid()) {
-                            k.key.interestOps(OP_WRITE);
-                        }
-                    } else {
-                        closeKey(k.key, k.Op);
+                    if (k.isValid()) {
+                        k.interestOps(OP_WRITE);
                     }
                 }
                 if (selector.select() <= 0) {
