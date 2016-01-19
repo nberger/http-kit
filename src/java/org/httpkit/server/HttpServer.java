@@ -68,7 +68,7 @@ public class HttpServer implements Runnable {
         ServerAtta att = (ServerAtta) key.attachment();
         if (att instanceof HttpAtta) {
             handler.clientClose(att.channel, -1);
-        } else {
+        } else if (att != null) {
             handler.clientClose(att.channel, status);
         }
     }
