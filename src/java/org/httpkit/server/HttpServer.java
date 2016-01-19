@@ -268,26 +268,27 @@ public class HttpServer implements Runnable {
         serverThread.start();
     }
 
-    public void stopAccept() {
+    public void stop(int timeout) {
         try {
             serverChannel.close(); // stop accept any request
         } catch (IOException ignore) {
         }
-    }
 
-    public void stop() {
+        // wait all requests to finish, at most timeout milliseconds
+        handler.close(timeout);
+
+        // close socket, notify on-close handlers
         if (selector.isOpen()) {
+            Set<SelectionKey> t = selector.keys();
+            SelectionKey[] keys = t.toArray(new SelectionKey[t.size()]);
+            for (SelectionKey k : keys) {
+                closeKey(k, 0); // 0 => close by server
+            }
+
             try {
-                serverChannel.close();
-                Set<SelectionKey> keys = selector.keys();
-                for (SelectionKey k : keys) {
-                    k.channel().close();
-                }
                 selector.close();
-                handler.close(0);
             } catch (IOException ignore) {
             }
-            serverThread.interrupt();
         }
     }
 }
